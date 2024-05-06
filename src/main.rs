@@ -7,6 +7,7 @@ extern crate serde_derive;
 
 const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n";
 const NOT_FOUND: &str = "HTTP/1.1 404 NOT FOUND\r\n\r\n";
+const BAD_REQUEST: &str = "HTTP/1.1 400 BAD REQUEST\r\n\r\n";
 const INTERNAL_SERVER_ERROR: &str = "HTTP/1.1 500 INTERNAL SERVER ERROR\r\n\r\n";
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -91,7 +92,12 @@ fn get_users(db: &Connection) -> (String, String) {
 }
 
 fn post_user(db: &Connection, request: String) -> (String, String) {
-    let user = get_user_request_body(request.clone()).unwrap();
+    let user = match get_user_request_body(request.clone()) {
+        Ok(val) => val,
+        Err(e) => {
+            return (BAD_REQUEST.to_string(), e.to_string())
+        }
+    };
     let query = format!("INSERT INTO users (name, age) VALUES ('{}', '{}')", user.name, user.age);
     let mut statement = db.prepare(query).unwrap();
     statement.iter().next();
@@ -99,16 +105,36 @@ fn post_user(db: &Connection, request: String) -> (String, String) {
 }
 
 fn put_user(db: &Connection, request: String) -> (String, String) {
-    let id = get_id(&request).parse::<i32>().unwrap();
-    let user = get_user_request_body(request.clone()).unwrap();
+    let id = match get_id(&request) {
+        Some(val) => val,
+        None => {
+            return (BAD_REQUEST.to_string(), "".to_string())
+        }
+    };
+    let user = match get_user_request_body(request.clone()) {
+        Ok(val) => val,
+        Err(e) => {
+            return (BAD_REQUEST.to_string(), e.to_string())
+        }
+    };
     let query = format!("UPDATE users SET name = '{}', age = {} WHERE id = {}", user.name, user.age, id);
-    let mut statement = db.prepare(query).unwrap();
+    let mut statement = match db.prepare(query) {
+        Ok(val) => val,
+        Err(e) => {
+            return (BAD_REQUEST.to_string(), e.to_string())
+        }
+    };
     statement.iter().next();
     (OK_RESPONSE.to_string(), "".to_string())
 }
 
 fn delete_user(db: &Connection, request: String) -> (String, String) {
-    let id = get_id(&request).parse::<i32>().unwrap();
+    let id = match get_id(&request) {
+        Some(val) => val,
+        None => {
+            return (BAD_REQUEST.to_string(), "".to_string())
+        }
+    };
     let query = format!("DELETE FROM users WHERE id = {}", id);
     let mut statement = db.prepare(query).unwrap();
     statement.iter().next();
@@ -119,6 +145,6 @@ fn get_user_request_body(request: String) -> Result<User, serde_json::Error> {
     serde_json::from_str(request.split("\r\n\r\n").last().unwrap_or_default())
 }
 
-fn get_id(request: &str) -> &str {
-    request.split("/").nth(2).unwrap_or_default().split_whitespace().next().unwrap_or_default()
+fn get_id(request: &str) -> Option<&str> {
+    request.split("/").nth(2).unwrap_or_default().split_whitespace().next()
 }
